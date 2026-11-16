@@ -1,0 +1,26 @@
+{
+  "name": "my-launch",
+  "language": "en",
+  "product": { "name": "Product name", "logo": null },
+  "maker": { "name": "", "logo": null },
+  "site": { "url": "https://example.com", "label": "example.com" },
+  "formats": ["16x9", "9x16"],
+  "themes": ["light"],
+  "colors": { "light": { "accent": "#2f5bea" }, "dark": { "accent": "#8fa8ff" } },
+  "font": { "family": "system" },
+  "music": { "mood": "calm", "bpm": 105, "key": "D" },
+  "pages": [
+    { "id": "home", "path": "/" },
+    { "id": "mobile", "path": "/", "mobile": true }
+  ],
+  "scenes": [
+    { "show": "text", "lead": "The problem in a few words", "big": "Big word", "beats": 8 },
+    { "show": "page", "page": "home", "brand": true, "lead": "Meet", "big": "Product name", "beats": 8, "camera": [[0, 0], [3.5, 0], [7.5, 600]] },
+    { "show": "phone", "page": "mobile", "lead": "On your phone", "big": "Too", "from": 0, "to": 1400, "beats": 8 },
+    { "show": "cards", "lead": "Built for", "big": "Everyone", "beats": 10, "items": [
+      { "icon": "bolt", "title": "First benefit", "text": "One short line" },
+      { "icon": "check", "title": "Second benefit", "text": "One short line" },
+      { "icon": "lock", "title": "Third benefit", "text": "One short line" } ] },
+    { "show": "end", "url": "example.com", "beats": 10 }
+  ]
+}

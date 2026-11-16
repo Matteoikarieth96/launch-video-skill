@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Projects · Brightwater Budget</title><link rel="stylesheet" href="style.css"><script src="data.js"></script></head>
+<body>
+<header><a class="brand" href="index.html"><i></i>Brightwater Budget</a>
+<nav><a href="index.html">Budget</a><a href="search.html">Projects</a><a href="#">Departments</a><a href="#">Open data</a></nav></header>
+<main>
+<section class="hero"><h1>Projects</h1>
+<form class="search" action="search.html" method="get"><input id="q" name="q" type="search" placeholder="Search a project, a street, a park" autocomplete="off"><button type="submit">Search</button></form></section>
+<h2 id="count"></h2>
+<div class="results" id="results"></div>
+</main>
+<footer>Brightwater Budget is a fictional demo site. Open data under CC BY 4.0, code under MIT.</footer>
+<script>
+const q = (new URLSearchParams(location.search).get('q') || '').trim(), box = document.getElementById('results');
+document.getElementById('q').value = q;
+const hits = PROJECTS.filter(([n, a]) => !q || (n + ' ' + a).toLowerCase().includes(q.toLowerCase()));
+const total = hits.reduce((s, h) => s + h[2], 0);
+document.getElementById('count').textContent = `${hits.length} project${hits.length === 1 ? '' : 's'}${q ? ' for "' + q + '"' : ''}, $${total.toFixed(1)}M`;
+for (const [n, a, m] of hits) {
+  const d = document.createElement('div'); d.className = 'item';
+  const l = document.createElement('div'); const t = document.createElement('span'); t.className = 'tag'; t.textContent = a;
+  const h = document.createElement('h3'); h.textContent = n; l.append(t, h);
+  const b = document.createElement('b'); b.textContent = '$' + m.toFixed(1) + 'M'; d.append(l, b); box.append(d);
+}
+</script>
+</body></html>

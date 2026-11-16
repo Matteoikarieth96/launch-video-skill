@@ -1,0 +1,236 @@
+{
+  "name": "brightwater-budget-launch",
+  "language": "en",
+  "product": {
+    "name": "Brightwater Budget",
+    "logo": "assets/product-logo.svg"
+  },
+  "maker": {
+    "name": "Brightwater Civic Lab",
+    "logo": "assets/maker-logo.svg",
+    "logoDark": "assets/maker-logo-dark.svg"
+  },
+  "site": {
+    "url": "file:site",
+    "label": "budget.brightwater.example"
+  },
+  "formats": [
+    "16x9",
+    "9x16"
+  ],
+  "themes": [
+    "light",
+    "dark"
+  ],
+  "colors": {
+    "light": {
+      "accent": "#0f7a5c",
+      "accent2": "#5aa98a",
+      "accentBg": "#e3f2ec",
+      "bg": "#f7f7f4",
+      "ink": "#17231f"
+    },
+    "dark": {
+      "accent": "#5fd3a6",
+      "accent2": "#2f8f6f",
+      "accentBg": "#16302a",
+      "bg": "#0d1412",
+      "card": "#16201d",
+      "surface": "#1f2b27"
+    }
+  },
+  "font": {
+    "family": "system"
+  },
+  "music": {
+    "mood": "calm",
+    "bpm": 105,
+    "key": "D"
+  },
+  "pages": [
+    {
+      "id": "home",
+      "path": "/",
+      "boxes": {
+        "explore": "text:a|Explore all",
+        "search": "#q"
+      },
+      "typing": {
+        "selector": "#q",
+        "text": "parks",
+        "submit": true
+      }
+    },
+    {
+      "id": "mobile",
+      "path": "/",
+      "mobile": true
+    }
+  ],
+  "scenes": [
+    {
+      "show": "logo",
+      "src": "maker",
+      "caption": "presents",
+      "beats": 6
+    },
+    {
+      "show": "text",
+      "lead": "Every dollar of the town budget",
+      "big": "In plain sight",
+      "beats": 8
+    },
+    {
+      "show": "page",
+      "page": "home",
+      "brand": true,
+      "lead": "Meet",
+      "big": "Brightwater\nBudget",
+      "beats": 8,
+      "camera": [
+        [
+          0,
+          0
+        ],
+        [
+          3.5,
+          0
+        ],
+        [
+          7.5,
+          450
+        ]
+      ]
+    },
+    {
+      "show": "page",
+      "page": "home",
+      "lead": "Search",
+      "big": "Anything",
+      "sub": "Roads, schools, parks: type it and see the money.",
+      "beats": 10,
+      "camera": [
+        [
+          0,
+          40,
+          1.3,
+          100
+        ],
+        [
+          10,
+          40,
+          1.3,
+          100
+        ]
+      ],
+      "typing": {
+        "at": 1.5
+      }
+    },
+    {
+      "show": "page",
+      "page": "home",
+      "lead": "Every project",
+      "big": "Explained",
+      "beats": 8,
+      "camera": [
+        [
+          0,
+          250
+        ],
+        [
+          8,
+          450
+        ]
+      ],
+      "highlight": {
+        "box": "explore",
+        "at": 4
+      }
+    },
+    {
+      "show": "phone",
+      "page": "mobile",
+      "lead": "On your phone",
+      "big": "Too",
+      "from": 0,
+      "to": 1500,
+      "beats": 8
+    },
+    {
+      "show": "numbers",
+      "lead": "This year",
+      "big": "In numbers",
+      "beats": 10,
+      "items": [
+        {
+          "value": 48.2,
+          "decimals": 1,
+          "prefix": "$",
+          "suffix": "M",
+          "label": "budget, line by line"
+        },
+        {
+          "value": 312,
+          "label": "projects tracked"
+        },
+        {
+          "value": 14,
+          "label": "departments"
+        },
+        {
+          "value": 100,
+          "suffix": "%",
+          "label": "open data"
+        }
+      ]
+    },
+    {
+      "show": "cards",
+      "lead": "Built for",
+      "big": "Everyone",
+      "beats": 10,
+      "items": [
+        {
+          "icon": "search",
+          "title": "Search every line",
+          "text": "A street, a school, a contract"
+        },
+        {
+          "icon": "chart",
+          "title": "Charts that explain",
+          "text": "Plain words, no jargon"
+        },
+        {
+          "icon": "lock",
+          "title": "No account",
+          "text": "No tracking, no ads"
+        }
+      ]
+    },
+    {
+      "show": "code",
+      "lead": "Open source",
+      "big": "MIT",
+      "repo": "github.com/example/brightwater-budget",
+      "beats": 10,
+      "lines": [
+        "// the theme, in one file",
+        "export const theme = {",
+        "  accent: \"#0f7a5c\",",
+        "  soft: \"#e3f2ec\",",
+        "  ink: \"#17231f\",",
+        "};"
+      ]
+    },
+    {
+      "show": "end",
+      "url": "budget.brightwater.example",
+      "repo": "github.com/example/brightwater-budget",
+      "by": "Made by Brightwater Civic Lab",
+      "logo": "maker",
+      "credit": "A fictional demo of the launch-video skill. Brightwater is not a real town.",
+      "beats": 12
+    }
+  ]
+}
