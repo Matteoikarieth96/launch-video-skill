@@ -5,10 +5,10 @@
 // (sizes, tiles, element boxes in CSS px). A page with "typing" also gets <id>@typed: the page after the text was
 // typed (and submitted), with the typed text made transparent so the engine can type it itself over the same pixels.
 // Only the URLs listed in video.json are opened. Nothing on the page is clicked, no form is sent unless "submit" is set.
-import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync } from 'node:fs';
+import { writeFileSync, readFileSync, existsSync, rmSync, readdirSync, lstatSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openTab } from './chrome.mjs';
+import { openTab, outDir } from './chrome.mjs';
 
 const ENGINE = dirname(fileURLToPath(import.meta.url)), ROOT = resolve(ENGINE, '..');
 const DATA = join(ROOT, 'build', 'data.json');
@@ -111,11 +111,12 @@ async function one(tab, p, theme, dir, META) {
 
 if (!PAGES.length) { console.log('no pages to capture (pages with "image" use your own screenshot)'); process.exit(0); }
 for (const theme of THEMES) {
-  const dir = join(ROOT, 'captures', theme); mkdirSync(dir, { recursive: true });
+  const dir = outDir(ROOT, 'captures', theme);
   const metaFile = join(dir, 'meta.json');
   const META = existsSync(metaFile) ? JSON.parse(readFileSync(metaFile, 'utf8')) : {};
   // remove the old tiles of the pages captured again (a page can get shorter)
-  for (const p of PAGES) for (const f of readdirSync(dir)) if (f.startsWith(p.id + '-') || f.startsWith(p.id + '__typed-')) rmSync(join(dir, f));
+  const TILE_RE = id => new RegExp('^' + id + '(__typed)?-\\d+\\.png$');
+  for (const p of PAGES) for (const f of readdirSync(dir)) if (TILE_RE(p.id).test(f) && lstatSync(join(dir, f)).isFile()) rmSync(join(dir, f));
   const tab = await openTab();
   try { for (const p of PAGES) await one(tab, p, theme, dir, META); }
   finally {

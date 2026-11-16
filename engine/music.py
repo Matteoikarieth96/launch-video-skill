@@ -254,7 +254,7 @@ def level(bar):
 def main():
     if MOOD == "none":
         f = ROOT / "audio" / "music.wav"
-        if f.is_file():
+        if f.is_file() and not f.is_symlink() and not (ROOT / "audio").is_symlink():
             f.unlink()
         print('music.mood is "none": no music, the video gets silence')
         return
@@ -395,6 +395,8 @@ def limit(x, ceiling_db, release=0.12):
 def master(mix):
     ff = find_ffmpeg()
     out = ROOT / "audio"
+    if out.is_symlink() or (out / "music.wav").is_symlink() or (out / "_tmp.wav").is_symlink():
+        sys.exit("audio/ (or a file in it) is a symlink: remove it, output folders must be real folders")
     out.mkdir(exist_ok=True)
     tmp = out / "_tmp.wav"
     x = mix / (np.abs(mix).max() + 1e-9) * 0.5

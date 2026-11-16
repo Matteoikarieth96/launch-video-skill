@@ -21,6 +21,7 @@ MOODS = ("calm", "bright", "minimal", "none")
 KEYS = {"C": 0, "C#": 1, "Db": 1, "D": 2, "D#": 3, "Eb": 3, "E": 4, "F": 5, "F#": 6, "Gb": 6, "G": 7, "G#": 8, "Ab": 8, "A": 9, "A#": 10, "Bb": 10, "B": 11}
 IMG_EXT = (".png", ".jpg", ".jpeg", ".svg", ".webp")
 HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
+MAX_PAGES, MAX_SCENES = 20, 60
 ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,47}$")
 
 # the theme tokens; video.json "colors" overrides any of them per theme
@@ -84,9 +85,15 @@ def asset(v, what):
 
 
 def site_url(base, path):
-    if base.startswith("file:") and not base.startswith("file://"):
+    if base.startswith("file:"):
         rel = base[5:]
+        if rel.startswith(("/", "\\")) or ":" in rel:
+            err("site.url: file: takes a folder inside the video folder, like file:site")
+            return None
         d = (ROOT / rel).resolve()
+        if d != ROOT and ROOT not in d.parents:
+            err(f"site.url: {rel} is outside the video folder")
+            return None
         if not d.is_dir():
             err(f"site.url: folder {rel} not found")
             return None
@@ -129,8 +136,8 @@ def main():
 
     site = v.get("site") or {}
     base = text(site.get("url"), "site.url", 300) or ""
-    if base and not re.match(r"^(https?://|file:)", base):
-        err("site.url must start with https://, http:// or file:")
+    if base and (not re.match(r"^(https?://|file:)", base) or base.startswith("file:/")):
+        err("site.url must start with https://, http:// or file:<folder inside the video folder>")
     out["site"] = {"url": base, "label": text(site.get("label"), "site.label", 80) or re.sub(r"^https?://", "", base).rstrip("/")}
 
     fm = v.get("formats", ["16x9", "9x16"])
@@ -177,7 +184,9 @@ def main():
 
     # pages
     pages, pids = [], {}
-    for i, p in enumerate(v.get("pages") or []):
+    if len(v.get("pages") or []) > MAX_PAGES:
+        err(f"pages: at most {MAX_PAGES}")
+    for i, p in enumerate((v.get("pages") or [])[:MAX_PAGES]):
         w = f"pages[{i}]"
         if not isinstance(p, dict):
             err(f"{w} must be an object")
@@ -245,7 +254,9 @@ def main():
     # scenes and timeline (in beats)
     scenes, beat = [], 0.0
     hits, logo_b, counters, end_b, typing = [], [], [], [], []
-    for i, s in enumerate(v.get("scenes") or []):
+    if len(v.get("scenes") or []) > MAX_SCENES:
+        err(f"scenes: at most {MAX_SCENES}")
+    for i, s in enumerate((v.get("scenes") or [])[:MAX_SCENES]):
         w = f"scenes[{i}]"
         if not isinstance(s, dict):
             err(f"{w} must be an object")
@@ -379,8 +390,7 @@ def main():
         return 1
 
     secs = total_beats * 60 / bpm
-    b = ROOT / "build"
-    b.mkdir(exist_ok=True)
+    b = out_dir("build")
     (b / "data.json").write_text(json.dumps(out, indent=1, ensure_ascii=False), encoding="utf-8")
     (b / "data.js").write_text("window.VIDEO = " + json.dumps(out, ensure_ascii=False).replace("<", "\\u003c") + ";\n", encoding="utf-8")
     tl = {"bpm": bpm, "beats": total_beats, "mood": mood, "key": KEYS[key], "hits": hits, "logo": logo_b, "counters": counters,
@@ -399,6 +409,19 @@ def main():
     for wmsg in warnings:
         print("  note:", wmsg)
     return 0
+
+
+def out_dir(*parts):
+    """an output folder inside the video folder; refuses one that is (or sits under) a symlink or leaves the folder"""
+    d = ROOT
+    for part in parts:
+        d = d / part
+        if d.is_symlink():
+            sys.exit(f"{d.relative_to(ROOT)} is a symlink: remove it (output folders must be real folders inside the video folder)")
+    d.mkdir(parents=True, exist_ok=True)
+    if ROOT not in d.resolve().parents:
+        sys.exit(f"{d} is outside the video folder")
+    return d
 
 
 def logo_ref(val, out, what):

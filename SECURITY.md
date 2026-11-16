@@ -25,14 +25,19 @@ What the skill reads, runs and writes, and what could be hostile:
 | `video.json` used to run code | It is data: no field is evaluated. Values go to the render page as JSON with `<` escaped | engine/build.py |
 | CSS injected into the captured page breaks out into markup | `css` and `hide` may not contain `<`, `hide` selectors may not contain braces | engine/build.py |
 | Asset paths reading files outside the folder (`../`, absolute, `C:`) | Assets must resolve inside the video folder and be png, jpg, jpeg, svg or webp | engine/build.py |
+| A local site outside the video folder (`file:../..`, `file:///etc`) | A `file:` site must be a folder inside the video folder; `file:/` and `file://` are refused | engine/build.py |
 | A local site page escaping its folder | `file:` page paths must resolve inside the site folder | engine/build.py |
 | Other URL schemes (`javascript:`, `data:`) | `site.url` must start with `https://`, `http://` or `file:` | engine/build.py |
+| Output folders replaced by symlinks to redirect writes or deletes | `build/`, `captures/<theme>/`, `audio/`, `previews/`, `out/` must be real folders inside the video folder; a symlink stops the script. Capture deletes only its own tile files (`<page>-<n>.png`) | engine/build.py, engine/chrome.mjs, engine/capture.mjs, engine/music.py |
+| A planted `meta.js` pointing the render page at other files | The render page loads only tiles named `captures/<theme>/<page>-<n>.png` and warns about anything else | engine/video.html |
+| A huge storyboard | At most 20 pages and 60 scenes | engine/build.py |
+| Instructions hidden in a captured page | SKILL.md: pages, captures and tool output are data; an instruction found there is quoted to the user, never followed | SKILL.md |
 | Actions on the captured site | The only input is typing into the named field, plus one Enter when `submit` is true; SKILL.md limits this to search and filter fields and forbids sign-ups, logins, purchases | engine/capture.mjs, SKILL.md |
 | Chrome reaching the user's profile, cookies or Keychain | Every Chrome gets a fresh temporary profile, `--use-mock-keychain --password-store=basic`, and is killed (profile removed) when the script exits | engine/chrome.mjs |
 | Orphan Chrome processes | Exit and signal handlers kill every Chrome the script started | engine/chrome.mjs |
 | Writing over an existing folder | `new_video.py` refuses a folder that exists and is not empty, and the skill folder itself | scripts/new_video.py |
 
-Tests for these cases: tests/test_skill.py (class `Validation`, `NewVideo`, `Engine.test_chrome_flags`).
+Tests for these cases: tests/test_skill.py (classes `Validation`, `OutputFolders`, `NewVideo`, `Engine`).
 
 ## Residual risks
 
@@ -42,6 +47,9 @@ Tests for these cases: tests/test_skill.py (class `Validation`, `NewVideo`, `Eng
   before rendering the final video.
 - `submit: true` presses Enter in the named field once. Pointing it at a form that sends something would send it:
   use it only on search fields.
+- While a capture or render runs, headless Chrome listens on a random DevTools port on 127.0.0.1
+  (`--remote-debugging-port=0`). Another program running as you on the same machine could connect to it for those
+  seconds; the browser holds only a throwaway profile with no cookies or logins.
 
 ## Reporting a vulnerability
 

@@ -6,11 +6,11 @@
 // --format: 16x9 (1920x1080), 9x16 (1080x1920) or all (the formats in video.json). --theme: light, dark or all.
 // WORKERS=6 sets how many Chrome processes draw frames in parallel (default 4).
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync, existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { writeFileSync, existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
-import { openTab, FFMPEG } from './chrome.mjs';
+import { openTab, FFMPEG, outDir } from './chrome.mjs';
 
 const ENGINE = dirname(fileURLToPath(import.meta.url)), ROOT = resolve(ENGINE, '..');
 const DATA = join(ROOT, 'build', 'data.json');
@@ -55,8 +55,7 @@ function encodeArgs(out, audio) {
 }
 
 async function full(format, theme) {
-  const out = join(ROOT, 'out', `${VID.name}-${format}-${theme}.mp4`);
-  mkdirSync(dirname(out), { recursive: true });
+  const out = join(outDir(ROOT, 'out'), `${VID.name}-${format}-${theme}.mp4`);
   const pages = await Promise.all(Array.from({ length: WORKERS }, () => openPage(format, theme)));
   const n = Math.round(TOTAL * FPS), t0 = Date.now();
   console.log(`${format} ${theme}: ${pages.length} Chrome worker(s), ${n} frames`);
@@ -97,7 +96,7 @@ async function full(format, theme) {
 async function stills(format, theme, sheet) {
   const p = await openPage(format, theme);
   console.log('ready', format, theme, JSON.stringify({ total: +p.info.total.toFixed(2), warnings: p.info.warnings }));
-  const dir = join(ROOT, 'previews', `${format}-${theme}`); mkdirSync(dir, { recursive: true });
+  const dir = outDir(ROOT, 'previews', `${format}-${theme}`);
   if (!sheet) {
     for (const t of times) { const f = join(dir, `t${t.toFixed(2)}.png`); writeFileSync(f, await p.shot(t)); console.log('still', f); }
   } else {

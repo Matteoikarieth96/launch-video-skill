@@ -108,6 +108,60 @@ class Validation(unittest.TestCase):
     def test_highlight_unknown_box(self):
         self.check(lambda v: v["scenes"][4]["highlight"].update(box="nope"), "is not in the boxes")
 
+    def test_file_site_outside_folder(self):
+        self.check(lambda v: v["site"].update(url="file:../.."), "outside the video folder")
+
+    def test_file_url_absolute(self):
+        self.check(lambda v: v["site"].update(url="file:///etc"), "must start with")
+
+    def test_too_many_scenes(self):
+        self.check(lambda v: v.update(scenes=v["scenes"] * 7), "at most 60")
+
+    def test_too_many_pages(self):
+        self.check(lambda v: v.update(pages=[dict(v["pages"][0], id=f"p{i}") for i in range(21)]), "at most 20")
+
+
+class OutputFolders(unittest.TestCase):
+    """output folders that are symlinks are refused, so a planted link cannot redirect writes or deletes"""
+
+    def test_build_refuses_symlinked_build(self):
+        with tempfile.TemporaryDirectory() as t:
+            d = make(t)
+            (pathlib.Path(t) / "elsewhere").mkdir()
+            (d / "build").symlink_to(pathlib.Path(t) / "elsewhere")
+            r = build(d)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("symlink", r.stdout + r.stderr)
+            self.assertEqual(list((pathlib.Path(t) / "elsewhere").iterdir()), [])
+
+    def test_music_refuses_symlinked_audio(self):
+        with tempfile.TemporaryDirectory() as t:
+            d = make(t)
+            self.assertEqual(build(d).returncode, 0)
+            (pathlib.Path(t) / "elsewhere").mkdir()
+            (d / "audio").symlink_to(pathlib.Path(t) / "elsewhere")
+            r = subprocess.run([sys.executable, "engine/music.py"], cwd=d, capture_output=True, text=True)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("symlink", r.stdout + r.stderr)
+
+    def test_out_dir_refuses_symlinks(self):
+        if not node_ok():
+            self.skipTest("Node 22+ not installed")
+        with tempfile.TemporaryDirectory() as t:
+            d = make(t)
+            (pathlib.Path(t) / "elsewhere").mkdir()
+            (d / "captures").mkdir()
+            (d / "captures" / "light").symlink_to(pathlib.Path(t) / "elsewhere")
+            (d / "out").symlink_to(pathlib.Path(t) / "elsewhere")
+            js = "import('./engine/chrome.mjs').then(m => { m.outDir(process.cwd(), ...process.argv.slice(1)); console.log('made'); })"
+            for parts in (["captures", "light"], ["out"]):
+                r = subprocess.run(["node", "-e", js, *parts], cwd=d, capture_output=True, text=True)
+                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                self.assertIn("symlink", r.stderr)
+            r = subprocess.run(["node", "-e", js, "previews", "9x16-dark"], cwd=d, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue((d / "previews" / "9x16-dark").is_dir())
+
 
 class Engine(unittest.TestCase):
     def test_every_show_has_a_drawer(self):
@@ -131,6 +185,15 @@ class Engine(unittest.TestCase):
         src = (SKILL / "engine" / "render.mjs").read_text()
         for k in ("'-crf', '10'", "bt709", "'-b:a', '320k'", "image2pipe"):
             self.assertIn(k, src)
+
+    def test_render_page_loads_only_capture_tiles(self):
+        src = (SKILL / "engine" / "video.html").read_text()
+        self.assertIn("new RegExp('^captures/' + theme + '/[a-z0-9-]+(__typed)?-\\\\d+\\\\.png$')", src)
+        self.assertIn("if (TILE.test(tl.src)) jobs.push", src)
+
+    def test_capture_deletes_only_its_tiles(self):
+        src = (SKILL / "engine" / "capture.mjs").read_text()
+        self.assertIn("TILE_RE(p.id).test(f) && lstatSync(join(dir, f)).isFile()", src)
 
     def test_example_is_fictional(self):
         v = json.loads((SKILL / "examples" / "demo" / "video.json").read_text())

@@ -2,9 +2,9 @@
 // Every Chrome gets --use-mock-keychain --password-store=basic (no macOS Keychain prompt) and a throwaway profile,
 // and is killed when the process ends, whatever ends it.
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, lstatSync, mkdirSync, realpathSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative, sep, isAbsolute } from 'node:path';
 
 export const CHROME = process.env.CHROME_PATH || [
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium',
@@ -73,4 +73,20 @@ export async function openTab({ width = 1280, height = 900, dsf = 1, mobile = fa
     try { rmSync(prof, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch { /* Chrome may still be flushing */ }
   };
   return { S, ev, once, logs, close };
+}
+
+// an output folder under root (captures/light, out, previews/9x16-dark): every part must be a real folder, not a
+// symlink, and stay inside root, so a planted link cannot send deletes or writes elsewhere
+export function outDir(root, ...parts) {
+  let d = root;
+  for (const part of parts) {
+    d = join(d, part);
+    let st = null; try { st = lstatSync(d); } catch { /* missing: made below */ }
+    if (st && st.isSymbolicLink()) { console.error(`${relative(root, d)} is a symlink: remove it (output folders must be real folders inside the video folder)`); process.exit(1); }
+    if (st && !st.isDirectory()) { console.error(`${relative(root, d)} is not a folder`); process.exit(1); }
+    if (!st) mkdirSync(d);
+  }
+  const rel = relative(realpathSync(root), realpathSync(d));
+  if (rel.startsWith('..' + sep) || rel === '..' || isAbsolute(rel)) { console.error(`${d} is outside the video folder`); process.exit(1); }
+  return d;
 }

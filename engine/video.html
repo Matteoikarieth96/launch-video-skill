@@ -34,7 +34,8 @@
     for (const w of extra) WARN.add(w);
     const jobs = [];
     // capture tiles
-    for (const [name, c] of Object.entries(CAPS)) c.tiles.forEach((tl, i) => jobs.push(loadImg('cap:' + name + '#' + i, tl.src)));
+    const TILE = new RegExp('^captures/' + theme + '/[a-z0-9-]+(__typed)?-\\d+\\.png$');
+    for (const [name, c] of Object.entries(CAPS)) c.tiles.forEach((tl, i) => { if (TILE.test(tl.src)) jobs.push(loadImg('cap:' + name + '#' + i, tl.src)); else WARN.add('ignored a capture tile outside captures/: ' + String(tl.src).slice(0, 60)); });
     // pages that use your own screenshot ("image"): one tile as tall as the picture
     for (const p of VID.pages.filter(p => p.image)) jobs.push(new Promise(res => {
       const im = new Image();
