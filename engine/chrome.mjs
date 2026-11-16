@@ -2,9 +2,11 @@
 // Every Chrome gets --use-mock-keychain --password-store=basic (no macOS Keychain prompt) and a throwaway profile,
 // and is killed when the process ends, whatever ends it.
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, existsSync, lstatSync, mkdirSync, realpathSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, lstatSync, mkdirSync, realpathSync, writeFileSync, readFileSync, renameSync, statSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { createServer } from 'node:http';
 import { tmpdir, homedir } from 'node:os';
-import { join, relative, sep, isAbsolute } from 'node:path';
+import { join, relative, sep, isAbsolute, dirname, resolve, extname } from 'node:path';
 
 export const CHROME = process.env.CHROME_PATH || [
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium',
@@ -89,4 +91,88 @@ export function outDir(root, ...parts) {
   const rel = relative(realpathSync(root), realpathSync(d));
   if (rel.startsWith('..' + sep) || rel === '..' || isAbsolute(rel)) { console.error(`${d} is outside the video folder`); process.exit(1); }
   return d;
+}
+
+const inside = (base, p) => { const r = relative(base, p); return r === '' || (!r.startsWith('..' + sep) && r !== '..' && !isAbsolute(r)); };
+
+// write a file without following a symlink planted at its name: write a fresh temp file next to it, then rename it
+// over the name (a rename replaces the link itself)
+export function safeWrite(file, data) {
+  const tmp = join(dirname(file), `.lv-${process.pid}-${randomBytes(6).toString('hex')}.tmp`);
+  writeFileSync(tmp, data, { flag: 'wx' });
+  try { renameSync(tmp, file); } catch (e) { rmSync(tmp, { force: true }); throw e; }
+}
+
+// captures/<theme>/meta.json, read in Node and checked: the render page gets it as data and never runs a file from
+// captures/. Only tiles named captures/<theme>/<page>-<n>.png that are regular files are kept; the rest is a warning.
+export function readCaptures(root, theme, warn) {
+  let d = root;
+  for (const part of ['captures', theme]) {
+    d = join(d, part);
+    let st = null; try { st = lstatSync(d); } catch { return {}; }
+    if (st.isSymbolicLink() || !st.isDirectory()) { warn(`${relative(root, d)} is not a real folder: captures ignored`); return {}; }
+  }
+  const f = join(d, 'meta.json');
+  let st = null; try { st = lstatSync(f); } catch { return {}; }
+  if (!st.isFile()) { warn(`captures/${theme}/meta.json is not a regular file: ignored`); return {}; }
+  let meta;
+  try { meta = JSON.parse(readFileSync(f, 'utf8')); } catch { warn(`captures/${theme}/meta.json is not valid JSON: run node engine/capture.mjs`); return {}; }
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return {};
+  const re = new RegExp(`^captures/${theme}/([a-z0-9-]+(?:__typed)?-\\d+\\.png)$`);
+  for (const c of Object.values(meta)) {
+    if (!c || typeof c !== 'object') continue;
+    c.tiles = (Array.isArray(c.tiles) ? c.tiles : []).filter(tl => {
+      const m = re.exec(String(tl && tl.src));
+      let ok = false;
+      if (m) try { ok = lstatSync(join(d, m[1])).isFile(); } catch { /* missing */ }
+      if (!ok) warn('ignored a capture tile outside captures/: ' + String(tl && tl.src).slice(0, 60));
+      return ok;
+    });
+  }
+  return meta;
+}
+
+// build/data.json is made by build.py, which checks every path. Check again the fields the render page loads, so a
+// stale or planted data.json cannot point it at files outside the video folder.
+const ASSET_KEYS = new Set(['logo', 'logoDark', 'light', 'dark', 'src', 'image']);
+export function checkData(root, vid) {
+  const realRoot = realpathSync(root), bad = [];
+  const walk = (o, key) => {
+    if (Array.isArray(o)) return o.forEach(v => walk(v, key));
+    if (o && typeof o === 'object') return Object.entries(o).forEach(([k, v]) => walk(v, k));
+    if (typeof o !== 'string' || !ASSET_KEYS.has(key) || !/\.(png|jpe?g|svg|webp)$/i.test(o)) return;
+    let ok = !isAbsolute(o) && !o.includes('\\') && !o.includes(':');
+    if (ok) try { ok = inside(realRoot, realpathSync(resolve(root, o))) && statSync(resolve(root, o)).isFile(); } catch { ok = false; }
+    if (!ok) bad.push(o);
+  };
+  walk(vid, '');
+  if (vid.googleFont != null && !/^[A-Za-z0-9 ]{1,40}$/.test(String(vid.googleFont))) bad.push('googleFont');
+  if (bad.length) { console.error('build/data.json points outside the video folder (' + bad.slice(0, 3).join(', ') + '): run python3 engine/build.py'); process.exit(1); }
+}
+
+// a local site (site.url "file:...") is served over http://127.0.0.1 from its own folder only, so its pages cannot
+// load other local files (an http page may not open file:// URLs, and this server refuses anything outside the folder)
+const TYPES = { '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.ico': 'image/x-icon',
+  '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf', '.txt': 'text/plain; charset=utf-8' };
+export async function serveFolder(folder) {
+  const base = realpathSync(folder);
+  let port = 0;
+  const srv = createServer((req, res) => {
+    const no = (code) => { res.writeHead(code, { 'content-type': 'text/plain' }); res.end(String(code)); };
+    if (req.headers.host !== `127.0.0.1:${port}`) return no(403);
+    if (req.method !== 'GET' && req.method !== 'HEAD') return no(405);
+    let path;
+    try { path = decodeURIComponent(new URL(req.url, 'http://x').pathname); } catch { return no(400); }
+    if (path.includes('\0')) return no(400);
+    let f = resolve(base, '.' + path), real;
+    try { if (statSync(f).isDirectory()) f = join(f, 'index.html'); real = realpathSync(f); } catch { return no(404); }
+    if (!inside(base, real) || !statSync(real).isFile()) return no(404);
+    res.writeHead(200, { 'content-type': TYPES[extname(real).toLowerCase()] || 'application/octet-stream', 'cache-control': 'no-store' });
+    res.end(req.method === 'HEAD' ? undefined : readFileSync(real));
+  });
+  await new Promise((ok, ko) => { srv.once('error', ko); srv.listen(0, '127.0.0.1', ok); });
+  port = srv.address().port;
+  return { base, url: `http://127.0.0.1:${port}`, close: () => new Promise(r => srv.close(() => r())) };
 }

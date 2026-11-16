@@ -2,6 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="frame-src 'none'; child-src 'none'; object-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'">
 <title>launch-video</title>
 <style>
   html, body { margin: 0; background: #000; overflow: hidden; }
@@ -13,7 +14,8 @@
 <body>
 <canvas id="c"></canvas>
 <script>
-/* Loads build/data.js (window.VIDEO), captures/<theme>/meta.js (window.CAPTURES), then core.js and scenes.js.
+/* render.mjs hands the page its data (window.LAUNCH_VIDEO: the storyboard and the checked captures) before it loads;
+   only ?play (a preview in your own browser) reads build/data.js and captures/<theme>/meta.js. Then core.js and scenes.js.
    window.ready resolves when every image and font is loaded: { total, warnings, format, theme }.
    window.seek(t) draws the frame at t seconds. Open with ?play to watch it in a browser (no audio). */
 (function () {
@@ -22,14 +24,16 @@
   const load = src => new Promise(res => { const s = document.createElement('script'); s.src = src; s.onload = () => res(true); s.onerror = () => res(false); document.head.appendChild(s); });
   let resolveReady; window.ready = new Promise(r => { resolveReady = r; });
   (async () => {
-    if (!await load('../build/data.js')) { resolveReady({ total: 0, warnings: ['build/data.js missing: run python3 engine/build.py'] }); return; }
-    const extra = [];
+    const INJ = window.LAUNCH_VIDEO, extra = [];
+    if (INJ) { window.VIDEO = INJ.video; window.CAPTURES = { [theme]: INJ.captures }; extra.push(...INJ.warnings); }
+    else if (!qs.has('play')) { resolveReady({ total: 0, warnings: ['open with ?play to preview, or render with node engine/render.mjs'] }); return; }
+    else if (!await load('../build/data.js')) { resolveReady({ total: 0, warnings: ['build/data.js missing: run python3 engine/build.py'] }); return; }
     if (VIDEO.googleFont) {
       const l = document.createElement('link'); l.rel = 'stylesheet';
       l.href = 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(VIDEO.googleFont).replace(/%20/g, '+') + ':wght@400;500;600;700;800&display=block';
       document.head.appendChild(l);
     }
-    if (VIDEO.pages.some(p => p.url) && !await load(`../captures/${theme}/meta.js`)) extra.push(`captures/${theme}/meta.js missing: run node engine/capture.mjs --theme ${theme}`);
+    if (!INJ && VIDEO.pages.some(p => p.url) && !await load(`../captures/${theme}/meta.js`)) extra.push(`captures/${theme}/meta.js missing: run node engine/capture.mjs --theme ${theme}`);
     await load('core.js'); await load('scenes.js');
     for (const w of extra) WARN.add(w);
     const jobs = [];

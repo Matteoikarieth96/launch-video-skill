@@ -1,14 +1,14 @@
 // launch-video capture: screenshots the real site (the pages in video.json) as tall PNG tiles, like a screen recording
 // that the engine then pans, zooms and crops. Run from the video folder after `python3 engine/build.py`:
 //   node engine/capture.mjs [--theme light|dark|all] [page ids ...]
-// Out: captures/<theme>/<id>-<k>.png (2000 CSS px tall tiles) + captures/<theme>/meta.json and meta.js
+// Out: captures/<theme>/<id>-<k>.png (2000 CSS px tall tiles) + captures/<theme>/meta.json (and meta.js, only for ?play)
 // (sizes, tiles, element boxes in CSS px). A page with "typing" also gets <id>@typed: the page after the text was
 // typed (and submitted), with the typed text made transparent so the engine can type it itself over the same pixels.
 // Only the URLs listed in video.json are opened. Nothing on the page is clicked, no form is sent unless "submit" is set.
-import { writeFileSync, readFileSync, existsSync, rmSync, readdirSync, lstatSync } from 'node:fs';
-import { join, resolve, dirname } from 'node:path';
+import { readFileSync, existsSync, rmSync, readdirSync, lstatSync, realpathSync } from 'node:fs';
+import { join, resolve, dirname, relative, sep, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openTab, outDir } from './chrome.mjs';
+import { openTab, outDir, safeWrite, serveFolder } from './chrome.mjs';
 
 const ENGINE = dirname(fileURLToPath(import.meta.url)), ROOT = resolve(ENGINE, '..');
 const DATA = join(ROOT, 'build', 'data.json');
@@ -32,7 +32,7 @@ async function load(tab, p, theme) {
   await tab.S('Emulation.setDeviceMetricsOverride', { width: p.width, height: p.mobile ? 844 : 900, deviceScaleFactor: p.dsf, mobile: p.mobile });
   await tab.S('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }] });
   const loaded = tab.once('Page.loadEventFired', 90000);
-  const nav = await tab.S('Page.navigate', { url: p.url });
+  const nav = await tab.S('Page.navigate', { url: p.openUrl });
   if (nav.errorText) throw new Error(`${p.url}: ${nav.errorText}`);
   await loaded;
   await prepare(tab, p, theme);
@@ -65,7 +65,7 @@ async function tiles(tab, dir, theme, name, w, h, dsf) {
     const th = Math.min(TILE, h - y);
     const { data } = await tab.S('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, clip: { x: 0, y, width: w, height: th, scale: 1 } });
     const file = `${name.replace('@', '__')}-${k}.png`;
-    writeFileSync(join(dir, file), Buffer.from(data, 'base64'));
+    safeWrite(join(dir, file), Buffer.from(data, 'base64'));
     out.push({ src: `captures/${theme}/${file}`, y, h: th });
   }
   return { w, h, dsf, tiles: out };
@@ -110,6 +110,20 @@ async function one(tab, p, theme, dir, META) {
 }
 
 if (!PAGES.length) { console.log('no pages to capture (pages with "image" use your own screenshot)'); process.exit(0); }
+// pages of a local site are opened through a server on 127.0.0.1 that serves only the site folder (inside the video folder)
+let SERVER = null;
+const within = (base, p) => { const r = relative(base, p); return r === '' || (!r.startsWith('..' + sep) && r !== '..' && !isAbsolute(r)); };
+for (const p of PAGES) {
+  if (/^https?:\/\//.test(p.url)) { p.openUrl = p.url; continue; }
+  if (!p.url.startsWith('file:') || !VID.siteDir) fail(`${p.id}: unexpected url, run python3 engine/build.py`);
+  const realRoot = realpathSync(ROOT), siteDir = resolve(ROOT, VID.siteDir);
+  if (!existsSync(siteDir) || !within(realRoot, realpathSync(siteDir))) fail('the local site folder must be inside the video folder: run python3 engine/build.py');
+  if (!SERVER) SERVER = await serveFolder(siteDir);
+  const u = new URL(p.url), f = fileURLToPath(u);
+  let real; try { real = realpathSync(f); } catch { fail(`${p.id}: ${relative(ROOT, f)} not found`); }
+  if (!within(SERVER.base, real)) fail(`${p.id}: the page is outside the site folder`);
+  p.openUrl = SERVER.url + '/' + relative(SERVER.base, real).split(sep).map(encodeURIComponent).join('/') + u.search;
+}
 for (const theme of THEMES) {
   const dir = outDir(ROOT, 'captures', theme);
   const metaFile = join(dir, 'meta.json');
@@ -121,9 +135,10 @@ for (const theme of THEMES) {
   try { for (const p of PAGES) await one(tab, p, theme, dir, META); }
   finally {
     await tab.close();
-    writeFileSync(metaFile, JSON.stringify(META, null, 1));
-    writeFileSync(join(dir, 'meta.js'), 'window.CAPTURES = window.CAPTURES || {}; window.CAPTURES[' + JSON.stringify(theme) + '] = ' + JSON.stringify(META).replace(/</g, '\\u003c') + ';\n');
+    safeWrite(metaFile, JSON.stringify(META, null, 1));
+    safeWrite(join(dir, 'meta.js'), 'window.CAPTURES = window.CAPTURES || {}; window.CAPTURES[' + JSON.stringify(theme) + '] = ' + JSON.stringify(META).replace(/</g, '\\u003c') + ';\n');
   }
 }
+if (SERVER) await SERVER.close();
 console.log('done: captures/<theme>/meta.json');
 process.exit(0);

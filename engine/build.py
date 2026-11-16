@@ -7,6 +7,8 @@ Writes build/data.json (for the node scripts), build/data.js (for engine/video.h
 Standard library only. video.json is data: nothing in it is ever run.
 """
 import json
+import os
+import tempfile
 import math
 import pathlib
 import re
@@ -20,9 +22,10 @@ ICONS = ("chart", "doc", "money", "search", "map", "lock", "bolt", "check", "sta
 MOODS = ("calm", "bright", "minimal", "none")
 KEYS = {"C": 0, "C#": 1, "Db": 1, "D": 2, "D#": 3, "Eb": 3, "E": 4, "F": 5, "F#": 6, "Gb": 6, "G": 7, "G#": 8, "Ab": 8, "A": 9, "A#": 10, "Bb": 10, "B": 11}
 IMG_EXT = (".png", ".jpg", ".jpeg", ".svg", ".webp")
-HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
+HEX = re.compile(r"^#[0-9a-fA-F]{6}\Z")
 MAX_PAGES, MAX_SCENES = 20, 60
-ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,47}$")
+SITE_DIR = [None]  # the local site folder (site.url file:...), relative to the video folder
+ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,47}\Z")
 
 # the theme tokens; video.json "colors" overrides any of them per theme
 DEFAULT_COLORS = {
@@ -97,6 +100,7 @@ def site_url(base, path):
         if not d.is_dir():
             err(f"site.url: folder {rel} not found")
             return None
+        SITE_DIR[0] = d.relative_to(ROOT).as_posix() or "."
         path_only, _, query = path.partition("?")
         f = (d / path_only.lstrip("/")).resolve()
         if f.is_dir():
@@ -166,7 +170,7 @@ def main():
 
     font = v.get("font") or {}
     fam = font.get("family", "system")
-    if not isinstance(fam, str) or not re.match(r"^[A-Za-z0-9 ]{1,40}$", fam):
+    if not isinstance(fam, str) or not re.match(r"^[A-Za-z0-9 ]{1,40}\Z", fam):
         err("font.family: letters, digits and spaces only")
         fam = "system"
     out["font"] = {"family": fam, "google": bool(font.get("google")) and fam != "system"}
@@ -205,7 +209,7 @@ def main():
              "wait": int(num(p.get("wait", 1200), f"{w}.wait", 0, 15000) or 0),
              "hide": [], "css": text(p.get("css", ""), f"{w}.css", 4000) or "", "boxes": {}, "crop": None, "typing": None,
              "themeAttribute": p.get("themeAttribute", site.get("themeAttribute")), "image": asset(p.get("image"), f"{w}.image"), "url": None}
-        if q["themeAttribute"] is not None and (not isinstance(q["themeAttribute"], str) or not re.match(r"^[a-z][a-z0-9-]{0,30}$", q["themeAttribute"])):
+        if q["themeAttribute"] is not None and (not isinstance(q["themeAttribute"], str) or not re.match(r"^[a-z][a-z0-9-]{0,30}\Z", q["themeAttribute"])):
             err(f"{w}.themeAttribute: an attribute name like data-theme")
             q["themeAttribute"] = None
         if "</" in q["css"] or "<" in q["css"]:
@@ -216,7 +220,7 @@ def main():
             else:
                 q["hide"].append(s)
         for k, s in (p.get("boxes") or {}).items():
-            if not re.match(r"^[A-Za-z][A-Za-z0-9_]{0,30}$", k) or not isinstance(s, str) or len(s) > 300:
+            if not re.match(r"^[A-Za-z][A-Za-z0-9_]{0,30}\Z", k) or not isinstance(s, str) or len(s) > 300:
                 err(f"{w}.boxes.{k}: a short name and a CSS selector (or text:TAG|Starts with)")
             else:
                 q["boxes"][k] = s
@@ -382,6 +386,7 @@ def main():
     out["scenes"] = scenes
     out["timeline"] = {"bpm": bpm, "beats": total_beats}
     out["googleFont"] = fam if out["font"]["google"] else None
+    out["siteDir"] = SITE_DIR[0]
 
     if errors:
         print("video.json has problems:")
@@ -391,11 +396,11 @@ def main():
 
     secs = total_beats * 60 / bpm
     b = out_dir("build")
-    (b / "data.json").write_text(json.dumps(out, indent=1, ensure_ascii=False), encoding="utf-8")
-    (b / "data.js").write_text("window.VIDEO = " + json.dumps(out, ensure_ascii=False).replace("<", "\\u003c") + ";\n", encoding="utf-8")
+    write_file(b / "data.json", json.dumps(out, indent=1, ensure_ascii=False))
+    write_file(b / "data.js", "window.VIDEO = " + json.dumps(out, ensure_ascii=False).replace("<", "\\u003c") + ";\n")
     tl = {"bpm": bpm, "beats": total_beats, "mood": mood, "key": KEYS[key], "hits": hits, "logo": logo_b, "counters": counters,
           "end": end_b, "typing": typing, "scenes": [[s["a"], s["b"], s["show"]] for s in scenes]}
-    (b / "timeline.json").write_text(json.dumps(tl, indent=1), encoding="utf-8")
+    write_file(b / "timeline.json", json.dumps(tl, indent=1))
 
     print(f"{name}: {len(scenes)} scenes, {total_beats:g} beats at {bpm:g} BPM = {secs:.1f} s, formats {', '.join(out['formats'])}, themes {', '.join(out['themes'])}")
     for s in scenes:
@@ -422,6 +427,20 @@ def out_dir(*parts):
     if ROOT not in d.resolve().parents:
         sys.exit(f"{d} is outside the video folder")
     return d
+
+
+def write_file(path, text):
+    """write without following a symlink planted at the name: a fresh temp file, then a rename over the name"""
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".lv-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
 
 
 def logo_ref(val, out, what):

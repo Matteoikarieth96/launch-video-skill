@@ -6,16 +6,19 @@
 // --format: 16x9 (1920x1080), 9x16 (1080x1920) or all (the formats in video.json). --theme: light, dark or all.
 // WORKERS=6 sets how many Chrome processes draw frames in parallel (default 4).
 import { spawn, spawnSync } from 'node:child_process';
-import { writeFileSync, existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, mkdtempSync, rmSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
-import { openTab, FFMPEG, outDir } from './chrome.mjs';
+import { openTab, FFMPEG, outDir, safeWrite, readCaptures, checkData } from './chrome.mjs';
 
 const ENGINE = dirname(fileURLToPath(import.meta.url)), ROOT = resolve(ENGINE, '..');
 const DATA = join(ROOT, 'build', 'data.json');
 if (!existsSync(DATA)) { console.error('build/data.json missing: run python3 engine/build.py first'); process.exit(1); }
 const VID = JSON.parse(readFileSync(DATA, 'utf8'));
+checkData(ROOT, VID);
+const PARTS = new Set();
+process.on('exit', () => { for (const d of PARTS) try { rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } });
 const args = process.argv.slice(2), mode = args[0] || 'sheet';
 const opt = (k, d) => { const i = args.indexOf('--' + k); return i >= 0 ? args[i + 1] : d; };
 const times = args.slice(1).filter((a, i, all) => !a.startsWith('--') && !(i > 0 && all[i - 1].startsWith('--'))).map(Number).filter(n => !isNaN(n));
@@ -32,6 +35,9 @@ process.on('unhandledRejection', fail);
 async function openPage(format, theme) {
   const [w, h] = format === '9x16' ? [1080, 1920] : [1920, 1080];
   const tab = await openTab({ width: w, height: h });
+  // the page gets the storyboard and the checked captures as data, before any of its own scripts run
+  const warnings = [], captures = readCaptures(ROOT, theme, m => warnings.push(m));
+  await tab.S('Page.addScriptToEvaluateOnNewDocument', { source: 'window.LAUNCH_VIDEO = ' + JSON.stringify({ video: VID, captures, warnings }) + ';' });
   const loaded = tab.once('Page.loadEventFired');
   await tab.S('Page.navigate', { url: pathToFileURL(join(ENGINE, 'video.html')).href + `?format=${format}&theme=${theme}` });
   await loaded;
@@ -55,11 +61,14 @@ function encodeArgs(out, audio) {
 }
 
 async function full(format, theme) {
-  const out = join(outDir(ROOT, 'out'), `${VID.name}-${format}-${theme}.mp4`);
+  const outFolder = outDir(ROOT, 'out'), out = join(outFolder, `${VID.name}-${format}-${theme}.mp4`);
+  // ffmpeg writes into a fresh folder, then the file is renamed over the name (never through a planted symlink)
+  const part = mkdtempSync(join(outFolder, '.partial-')); PARTS.add(part);
+  const partFile = join(part, 'video.mp4');
   const pages = await Promise.all(Array.from({ length: WORKERS }, () => openPage(format, theme)));
   const n = Math.round(TOTAL * FPS), t0 = Date.now();
   console.log(`${format} ${theme}: ${pages.length} Chrome worker(s), ${n} frames`);
-  const ff = spawn(FFMPEG, encodeArgs(out, join(ROOT, 'audio', 'music.wav')), { stdio: ['pipe', 'inherit', 'inherit'] });
+  const ff = spawn(FFMPEG, encodeArgs(partFile, join(ROOT, 'audio', 'music.wav')), { stdio: ['pipe', 'inherit', 'inherit'] });
   const ffDone = new Promise(r => ff.on('exit', r));
   const ready = new Map(), AHEAD = pages.length * 4;
   let next = 0, written = 0, wakeWriter = null, wakeWorkers = [];
@@ -89,6 +98,7 @@ async function full(format, theme) {
   const errs = pages.flatMap(p => p.logs);
   await Promise.all(pages.map(p => p.close()));
   if (code !== 0) fail('ffmpeg exited ' + code);
+  renameSync(partFile, out); rmSync(part, { recursive: true, force: true }); PARTS.delete(part);
   if (errs.length) console.warn('page errors:', errs.join(' | '));
   console.log('video', out, `${((Date.now() - t0) / 1000).toFixed(0)} s`);
 }
@@ -98,16 +108,17 @@ async function stills(format, theme, sheet) {
   console.log('ready', format, theme, JSON.stringify({ total: +p.info.total.toFixed(2), warnings: p.info.warnings }));
   const dir = outDir(ROOT, 'previews', `${format}-${theme}`);
   if (!sheet) {
-    for (const t of times) { const f = join(dir, `t${t.toFixed(2)}.png`); writeFileSync(f, await p.shot(t)); console.log('still', f); }
+    for (const t of times) { const f = join(dir, `t${t.toFixed(2)}.png`); safeWrite(f, await p.shot(t)); console.log('still', f); }
   } else {
     const step = 2, ts = []; for (let t = 1; t < TOTAL; t += step) ts.push(+t.toFixed(2));
     const tmp = mkdtempSync(join(process.env.TMPDIR || tmpdir(), 'launch-video-sheet-'));
     try {
-      for (const [k, t] of ts.entries()) writeFileSync(join(tmp, `f${String(k).padStart(3, '0')}.png`), await p.shot(t));
+      for (const [k, t] of ts.entries()) safeWrite(join(tmp, `f${String(k).padStart(3, '0')}.png`), await p.shot(t));
       const cols = format === '9x16' ? 8 : 4, [tw, th] = format === '9x16' ? [270, 480] : [480, 270];
       const r = spawnSync(FFMPEG, ['-y', '-v', 'error', '-framerate', '1', '-i', join(tmp, 'f%03d.png'), '-vf',
-        `scale=${tw}:${th},tile=${cols}x${Math.ceil(ts.length / cols)}:padding=4:color=gray`, '-frames:v', '1', join(dir, 'sheet.png')], { stdio: ['ignore', 'ignore', 'pipe'] });
+        `scale=${tw}:${th},tile=${cols}x${Math.ceil(ts.length / cols)}:padding=4:color=gray`, '-frames:v', '1', join(tmp, 'sheet.png')], { stdio: ['ignore', 'ignore', 'pipe'] });
       if (r.status !== 0) fail('contact sheet: ' + String(r.stderr || '').trim());
+      safeWrite(join(dir, 'sheet.png'), readFileSync(join(tmp, 'sheet.png')));
     } finally { rmSync(tmp, { recursive: true, force: true }); }
     console.log('sheet', join(dir, 'sheet.png'), `(a frame every ${step} s from 1 s, left to right)`);
   }

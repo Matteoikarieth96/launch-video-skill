@@ -144,6 +144,34 @@ class OutputFolders(unittest.TestCase):
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("symlink", r.stdout + r.stderr)
 
+    def test_build_replaces_symlinked_file(self):
+        with tempfile.TemporaryDirectory() as t:
+            d = make(t)
+            victim = pathlib.Path(t) / "victim.txt"
+            victim.write_text("untouched")
+            (d / "build").mkdir()
+            (d / "build" / "data.json").symlink_to(victim)
+            r = build(d)
+            self.assertEqual(r.returncode, 0, r.stdout)
+            self.assertEqual(victim.read_text(), "untouched")
+            self.assertFalse((d / "build" / "data.json").is_symlink())
+
+    def test_trailing_newline_id(self):
+        with tempfile.TemporaryDirectory() as t:
+            d = make(t)
+            v = json.loads((d / "video.json").read_text())
+            v["name"] = "demo\n"
+            (d / "video.json").write_text(json.dumps(v))
+            self.assertEqual(build(d).returncode, 1)
+
+    def test_node_guards(self):
+        if not node_ok():
+            self.skipTest("Node 22+ not installed")
+        with tempfile.TemporaryDirectory() as t:
+            r = subprocess.run(["node", str(SKILL / "tests" / "node_checks.mjs"), t], capture_output=True, text=True, timeout=60)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn("all node checks passed", r.stdout)
+
     def test_out_dir_refuses_symlinks(self):
         if not node_ok():
             self.skipTest("Node 22+ not installed")
@@ -186,14 +214,10 @@ class Engine(unittest.TestCase):
         for k in ("'-crf', '10'", "bt709", "'-b:a', '320k'", "image2pipe"):
             self.assertIn(k, src)
 
-    def test_render_page_loads_only_capture_tiles(self):
+    def test_render_page_runs_no_capture_script(self):
         src = (SKILL / "engine" / "video.html").read_text()
-        self.assertIn("new RegExp('^captures/' + theme + '/[a-z0-9-]+(__typed)?-\\\\d+\\\\.png$')", src)
-        self.assertIn("if (TILE.test(tl.src)) jobs.push", src)
-
-    def test_capture_deletes_only_its_tiles(self):
-        src = (SKILL / "engine" / "capture.mjs").read_text()
-        self.assertIn("TILE_RE(p.id).test(f) && lstatSync(join(dir, f)).isFile()", src)
+        self.assertIn("frame-src 'none'", src)
+        self.assertIn("if (!INJ && VIDEO.pages.some", src)
 
     def test_example_is_fictional(self):
         v = json.loads((SKILL / "examples" / "demo" / "video.json").read_text())
@@ -295,6 +319,20 @@ class Pipeline(unittest.TestCase):
                 self.assertEqual(ready["warnings"], [], f"{fmt} {theme}")
                 for t in ("10.50", "16.00", "47.00"):
                     self.assertEqual(png_size(self.d / "previews" / f"{fmt}-{theme}" / f"t{t}.png"), size)
+
+        # a planted meta.js is never run by the render page, and a tile pointing elsewhere is dropped with a warning
+        mf = self.d / "captures" / "light" / "meta.json"
+        keep = mf.read_text()
+        try:
+            meta = json.loads(keep)
+            meta["home"]["tiles"].append({"src": "../video.json", "y": 0, "h": 10})
+            mf.write_text(json.dumps(meta))
+            (self.d / "captures" / "light" / "meta.js").write_text("window.CAPTURES = { light: {} };")
+            out = self.run_in("node", "engine/render.mjs", "still", "16", "--format", "16x9", "--theme", "light")
+            ready = json.loads(re.search(r"ready \S+ \S+ (\{.*\})", out).group(1))
+            self.assertEqual(ready["warnings"], ["ignored a capture tile outside captures/: ../video.json"])
+        finally:
+            mf.write_text(keep)
 
     def test_2_short_full_render(self):
         v = json.loads((self.d / "video.json").read_text())
