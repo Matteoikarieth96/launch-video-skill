@@ -117,6 +117,15 @@ and ffmpeg are installed. CI runs everything on every push and pull request.
 - [skill-release](https://github.com/Matteoikarieth96/skill-release-skill): publish a skill as a public GitHub repo without leaking anything, with an automated scan and independent review
 - [adversarial-review](https://github.com/Matteoikarieth96/adversarial-review-skill): a panel of independent reviewer agents challenges finished work and returns one verdict
 - [3d-print-design](https://github.com/Matteoikarieth96/3d-print-design-skill): parametric parts for FDM 3D printing, checked before export
+- [ai-privacy-check](https://github.com/Matteoikarieth96/ai-privacy-check-skill): a first privacy and AI rules check for a use case in Italy and the EU, with a one-page report (in Italian)
+- [beer-can-label](https://github.com/Matteoikarieth96/beer-can-label-skill): a print-ready full-wrap beer can label with a 3D can preview and a labelling QA pass
+- [breadboard-wiring-guide](https://github.com/Matteoikarieth96/breadboard-wiring-guide-skill): step-by-step breadboard wiring guides for Arduino UNO beginners, one diagram per step and a USB call on every step
+- [claude-time-is-relative](https://github.com/Matteoikarieth96/claude-time-is-relative): time estimates for Claude Code, learned from your own past sessions, on your own machine
+- [evm-dd](https://github.com/Matteoikarieth96/evm-dd-skill): investor-angle due diligence on crypto and EVM projects, with a scored report and an A4 one-pager
+- [hiring-prep](https://github.com/Matteoikarieth96/hiring-prep-skill): one interview prep page from a company, a role and your resume, with an interactive multiple-choice test
+- [portfolio-report](https://github.com/Matteoikarieth96/portfolio-report-skill): an English portfolio report, an A4 one-pager and PDFs from a Fineco export, with a switch to hide the amounts
+- [token-checkup](https://github.com/Matteoikarieth96/token-checkup-skill): a weekly token checkup for Claude Code: session size, what loads at session start, memory kept true
+- [x2d-print](https://github.com/Matteoikarieth96/x2d-print-skill): STL parts to a ready-to-print Bambu Studio project for the Bambu Lab X2D, checked by a local slice, with a beginner guide
 
 ## License
 
