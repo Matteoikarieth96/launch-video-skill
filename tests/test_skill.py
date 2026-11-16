@@ -156,6 +156,15 @@ class OutputFolders(unittest.TestCase):
             self.assertEqual(victim.read_text(), "untouched")
             self.assertFalse((d / "build" / "data.json").is_symlink())
 
+    def test_retina_logo_name_accepted(self):
+        with tempfile.TemporaryDirectory() as t:
+            d = make(t)
+            shutil.copy(d / "assets" / "product-logo.svg", d / "assets" / "logo@2x.svg")
+            v = json.loads((d / "video.json").read_text())
+            v["product"]["logo"] = "assets/logo@2x.svg"
+            (d / "video.json").write_text(json.dumps(v))
+            self.assertEqual(build(d).returncode, 0)
+
     def test_trailing_newline_id(self):
         with tempfile.TemporaryDirectory() as t:
             d = make(t)

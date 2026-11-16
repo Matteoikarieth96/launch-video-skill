@@ -55,7 +55,8 @@ project, never inside the skill folder):
 python3 <skill>/scripts/new_video.py <folder>             # from the template
 python3 <skill>/scripts/new_video.py <folder> --example   # the fictional demo, to see how it all fits
 ```
-Put the logos in `<folder>/assets/` (copy them; SVG or PNG with a transparent background), then write
+Put the logos in `<folder>/assets/` (copy them, renamed to plain names like `product-logo.svg`; SVG or PNG with a
+transparent background), then write
 `video.json` with the scenes (schema and storyboard craft in `references/storyboard.md`; read it before writing).
 Run `python3 engine/build.py` from the folder: it validates the file and prints every scene with its start and end
 time. Show the user that list as a short table (time, what is on screen, the words) and ask for changes. Do not

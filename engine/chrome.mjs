@@ -138,7 +138,7 @@ export function readCaptures(root, theme, warn) {
 // data.json cannot make them read or write outside the video folder.
 export const THEMES = ['light', 'dark'], FORMATS = ['16x9', '9x16'];
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,47}$/;
-const SEG = '[A-Za-z0-9_][A-Za-z0-9._ -]*';
+const SEG = '[A-Za-z0-9_][A-Za-z0-9._ @+-]*';
 const ASSET_RE = new RegExp(`^(?:${SEG}/)*${SEG}\\.(?:png|jpe?g|svg|webp)$`, 'i');
 const DIR_RE = new RegExp(`^(?:\\.|${SEG}(?:/${SEG})*)$`);
 const ASSET_KEYS = new Set(['logo', 'logoDark', 'light', 'dark', 'src', 'image']);
