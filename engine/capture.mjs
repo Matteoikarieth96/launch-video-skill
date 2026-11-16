@@ -8,12 +8,13 @@
 import { readFileSync, existsSync, rmSync, readdirSync, lstatSync, realpathSync } from 'node:fs';
 import { join, resolve, dirname, relative, sep, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openTab, outDir, safeWrite, serveFolder } from './chrome.mjs';
+import { openTab, outDir, safeWrite, serveFolder, checkData } from './chrome.mjs';
 
 const ENGINE = dirname(fileURLToPath(import.meta.url)), ROOT = resolve(ENGINE, '..');
 const DATA = join(ROOT, 'build', 'data.json');
 if (!existsSync(DATA)) { console.error('build/data.json missing: run python3 engine/build.py first'); process.exit(1); }
 const VID = JSON.parse(readFileSync(DATA, 'utf8'));
+checkData(ROOT, VID);
 const args = process.argv.slice(2), ids = [];
 let themeArg = 'all';
 for (let i = 0; i < args.length; i++) { if (args[i] === '--theme') themeArg = args[++i]; else ids.push(args[i]); }
@@ -127,7 +128,12 @@ for (const p of PAGES) {
 for (const theme of THEMES) {
   const dir = outDir(ROOT, 'captures', theme);
   const metaFile = join(dir, 'meta.json');
-  const META = existsSync(metaFile) ? JSON.parse(readFileSync(metaFile, 'utf8')) : {};
+  let META = {};
+  if (existsSync(metaFile)) {
+    if (lstatSync(metaFile).isFile()) { try { META = JSON.parse(readFileSync(metaFile, 'utf8')); } catch { META = {}; } }
+    else console.warn(`  note: captures/${theme}/meta.json is not a regular file: starting a new one`);
+  }
+  if (!META || typeof META !== 'object' || Array.isArray(META)) META = {};
   // remove the old tiles of the pages captured again (a page can get shorter)
   const TILE_RE = id => new RegExp('^' + id + '(__typed)?-\\d+\\.png$');
   for (const p of PAGES) for (const f of readdirSync(dir)) if (TILE_RE(p.id).test(f) && lstatSync(join(dir, f)).isFile()) rmSync(join(dir, f));

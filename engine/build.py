@@ -24,6 +24,7 @@ KEYS = {"C": 0, "C#": 1, "Db": 1, "D": 2, "D#": 3, "Eb": 3, "E": 4, "F": 5, "F#"
 IMG_EXT = (".png", ".jpg", ".jpeg", ".svg", ".webp")
 HEX = re.compile(r"^#[0-9a-fA-F]{6}\Z")
 MAX_PAGES, MAX_SCENES = 20, 60
+ASSET_NAME = re.compile(r"^(?:[A-Za-z0-9_][A-Za-z0-9._ -]*/)*[A-Za-z0-9_][A-Za-z0-9._ -]*\.(?:png|jpe?g|svg|webp)\Z", re.I)
 SITE_DIR = [None]  # the local site folder (site.url file:...), relative to the video folder
 ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,47}\Z")
 
@@ -84,7 +85,11 @@ def asset(v, what):
     if not p.is_file():
         err(f"{what}: {v} not found")
         return None
-    return p.relative_to(ROOT).as_posix()
+    rel = p.relative_to(ROOT).as_posix()
+    if not ASSET_NAME.match(rel):
+        err(f"{what}: {rel}: use letters, digits, spaces, dots, dashes and underscores in file and folder names (no leading dot)")
+        return None
+    return rel
 
 
 def site_url(base, path):

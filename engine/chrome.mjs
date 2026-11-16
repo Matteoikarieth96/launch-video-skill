@@ -106,6 +106,7 @@ export function safeWrite(file, data) {
 // captures/<theme>/meta.json, read in Node and checked: the render page gets it as data and never runs a file from
 // captures/. Only tiles named captures/<theme>/<page>-<n>.png that are regular files are kept; the rest is a warning.
 export function readCaptures(root, theme, warn) {
+  if (!THEMES.includes(theme)) return {};
   let d = root;
   for (const part of ['captures', theme]) {
     d = join(d, part);
@@ -132,22 +133,39 @@ export function readCaptures(root, theme, warn) {
   return meta;
 }
 
-// build/data.json is made by build.py, which checks every path. Check again the fields the render page loads, so a
-// stale or planted data.json cannot point it at files outside the video folder.
+// build/data.json is made by build.py, which checks everything. Capture and render check again what decides a file
+// name or a path (name, page ids, themes, formats, the site folder, logos and pictures), so a stale or planted
+// data.json cannot make them read or write outside the video folder.
+export const THEMES = ['light', 'dark'], FORMATS = ['16x9', '9x16'];
+const ID_RE = /^[a-z0-9][a-z0-9-]{0,47}$/;
+const SEG = '[A-Za-z0-9_][A-Za-z0-9._ -]*';
+const ASSET_RE = new RegExp(`^(?:${SEG}/)*${SEG}\\.(?:png|jpe?g|svg|webp)$`, 'i');
+const DIR_RE = new RegExp(`^(?:\\.|${SEG}(?:/${SEG})*)$`);
 const ASSET_KEYS = new Set(['logo', 'logoDark', 'light', 'dark', 'src', 'image']);
-export function checkData(root, vid) {
-  const realRoot = realpathSync(root), bad = [];
+export function dataProblems(root, vid) {
+  const bad = [];
+  if (!vid || typeof vid !== 'object') return ['not an object'];
+  if (!ID_RE.test(String(vid.name))) bad.push('name');
+  if (!Array.isArray(vid.themes) || !vid.themes.length || !vid.themes.every(t => THEMES.includes(t))) bad.push('themes');
+  if (!Array.isArray(vid.formats) || !vid.formats.length || !vid.formats.every(f => FORMATS.includes(f))) bad.push('formats');
+  if (!Array.isArray(vid.pages) || vid.pages.some(p => !p || !ID_RE.test(String(p.id)) || (p.url != null && !/^(https?:\/\/|file:\/\/\/)/.test(String(p.url))))) bad.push('pages');
+  if (vid.siteDir != null && !DIR_RE.test(String(vid.siteDir))) bad.push('siteDir');
+  if (vid.googleFont != null && !/^[A-Za-z0-9 ]{1,40}$/.test(String(vid.googleFont))) bad.push('googleFont');
+  const realRoot = realpathSync(root);
   const walk = (o, key) => {
     if (Array.isArray(o)) return o.forEach(v => walk(v, key));
     if (o && typeof o === 'object') return Object.entries(o).forEach(([k, v]) => walk(v, k));
-    if (typeof o !== 'string' || !ASSET_KEYS.has(key) || !/\.(png|jpe?g|svg|webp)$/i.test(o)) return;
-    let ok = !isAbsolute(o) && !o.includes('\\') && !o.includes(':');
+    if (o == null || !ASSET_KEYS.has(key)) return;
+    let ok = typeof o === 'string' && ASSET_RE.test(o) && !o.split('/').includes('..');
     if (ok) try { ok = inside(realRoot, realpathSync(resolve(root, o))) && statSync(resolve(root, o)).isFile(); } catch { ok = false; }
-    if (!ok) bad.push(o);
+    if (!ok) bad.push(String(o).slice(0, 60));
   };
-  walk(vid, '');
-  if (vid.googleFont != null && !/^[A-Za-z0-9 ]{1,40}$/.test(String(vid.googleFont))) bad.push('googleFont');
-  if (bad.length) { console.error('build/data.json points outside the video folder (' + bad.slice(0, 3).join(', ') + '): run python3 engine/build.py'); process.exit(1); }
+  walk({ product: vid.product, maker: vid.maker, pages: vid.pages, scenes: vid.scenes }, '');
+  return bad;
+}
+export function checkData(root, vid) {
+  const bad = dataProblems(root, vid);
+  if (bad.length) { console.error('build/data.json does not look like build.py made it (' + bad.slice(0, 3).join(', ') + '): run python3 engine/build.py'); process.exit(1); }
 }
 
 // a local site (site.url "file:...") is served over http://127.0.0.1 from its own folder only, so its pages cannot
@@ -155,6 +173,7 @@ export function checkData(root, vid) {
 const TYPES = { '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml',
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.ico': 'image/x-icon',
+  '.avif': 'image/avif', '.wasm': 'application/wasm', '.mp4': 'video/mp4', '.webm': 'video/webm', '.webmanifest': 'application/manifest+json', '.xml': 'application/xml',
   '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf', '.txt': 'text/plain; charset=utf-8' };
 export async function serveFolder(folder) {
   const base = realpathSync(folder);
@@ -166,9 +185,11 @@ export async function serveFolder(folder) {
     let path;
     try { path = decodeURIComponent(new URL(req.url, 'http://x').pathname); } catch { return no(400); }
     if (path.includes('\0')) return no(400);
+    // no hidden files or folders (.git, .env ...)
+    if (path.split('/').some(seg => seg.startsWith('.'))) return no(404);
     let f = resolve(base, '.' + path), real;
     try { if (statSync(f).isDirectory()) f = join(f, 'index.html'); real = realpathSync(f); } catch { return no(404); }
-    if (!inside(base, real) || !statSync(real).isFile()) return no(404);
+    if (!inside(base, real) || relative(base, real).split(sep).some(seg => seg.startsWith('.')) || !statSync(real).isFile()) return no(404);
     res.writeHead(200, { 'content-type': TYPES[extname(real).toLowerCase()] || 'application/octet-stream', 'cache-control': 'no-store' });
     res.end(req.method === 'HEAD' ? undefined : readFileSync(real));
   });
